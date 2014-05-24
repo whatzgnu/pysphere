@@ -28,6 +28,10 @@
 #--
 
 import sys
+import os
+from base64 import b64encode, b64decode
+from urlparse import urlparse
+from socket import gethostbyaddr
 
 from pysphere.resources import VimService_services as VI
 
@@ -50,18 +54,24 @@ class VIServer:
         #By default impersonate the VI Client to be accepted by Virtual Server
         self.__initial_headers = {"User-Agent":"VMware VI Client/5.0.0"}
 
-    def connect(self, host, user, password, trace_file=None, sock_timeout=None):
+    def connect(self, host, user=None, password=None, passthrough=False, trace_file=None, sock_timeout=None):
         """Opens a session to a VC/ESX server with the given credentials:
         @host: is the server's hostname or address. If the web service uses
         another protocol or port than the default, you must use the full
         service URL (e.g. http://myhost:8888/sdk)
-        @user: username to connect with
-        @password: password to authenticate the session
+        @user: (optional) username to connect with
+        @password: (optional) password to authenticate the session
+        @passthrough: (optional) use Windows session credentials
+        or MIT Kerberos credentials to connect.
+        User should provide user/password pair OR set passthrough to True
         @trace_file: (optional) a file path to log SOAP requests and responses
         @sock_timeout: (optional) only for python >= 2.6, sets the connection
         timeout for sockets, in python 2.5 you'll  have to use
         socket.setdefaulttimeout(secs) to change the global setting.
         """
+        if (((user is None or password is None) and not passthrough)
+        or ((user is not None or password is not None) and passthrough)):
+            raise TypeError("connect() takes user/password pair OR passthrough=True")
 
         self.__user = user
         self.__password = password
@@ -103,16 +113,69 @@ class VIServer:
             self.__api_version = self._do_service_content.About.ApiVersion
             self.__api_type = self._do_service_content.About.ApiType
 
-            #login
-            request = VI.LoginRequestMsg()
-            mor_session_manager = request.new__this(
-                                        self._do_service_content.SessionManager)
-            mor_session_manager.set_attribute_type(MORTypes.SessionManager)
-            request.set_element__this(mor_session_manager)
-            request.set_element_userName(user)
-            request.set_element_password(password)
-            self.__session = self._proxy.Login(request)._returnval
-            self.__logged = True
+            if not passthrough:
+                #login with user/password
+                request = VI.LoginRequestMsg()
+                mor_session_manager = request.new__this(
+                                            self._do_service_content.SessionManager)
+                mor_session_manager.set_attribute_type(MORTypes.SessionManager)
+                request.set_element__this(mor_session_manager)
+                request.set_element_userName(user)
+                request.set_element_password(password)
+                self.__session = self._proxy.Login(request)._returnval
+                self.__logged = True
+
+            else:
+                fqdn, aliases, addrs = gethostbyaddr(urlparse(server_url).netloc)
+                if os.name == 'nt':
+                    #login with Windows session credentials
+                    try:
+                        from sspi import ClientAuth
+                    except ImportError:
+                        raise ImportError("To enable passthrough authentication please"\
+                            " install pywin32 (available for Windows only)")
+                    spn = "host/%s" % fqdn
+                    client = ClientAuth("Kerberos", targetspn=spn)
+
+                    def get_token(serverToken=None):
+                        if serverToken is not None:
+                            serverToken = b64decode(serverToken)
+                        err, bufs = client.authorize(serverToken)
+                        return b64encode(bufs[0].Buffer)
+                else:
+                    #login with MIT Kerberos credentials
+                    try:
+                        import kerberos
+                    except ImportError:
+                        raise ImportError("To enable passthrough authentication please"\
+                            " install python bindings for kerberos")
+                    spn = "host@%s" % fqdn
+                    flags = kerberos.GSS_C_INTEG_FLAG|kerberos.GSS_C_SEQUENCE_FLAG|\
+                        kerberos.GSS_C_REPLAY_FLAG|kerberos.GSS_C_CONF_FLAG
+                    errc, client = kerberos.authGSSClientInit(spn, gssflags=flags)
+
+                    def get_token(serverToken=''):
+                        cres = kerberos.authGSSClientStep(client, serverToken)
+                        return kerberos.authGSSClientResponse(client)
+
+                token = get_token()
+
+                while not self.__logged:
+                    try:
+                        request = VI.LoginBySSPIRequestMsg()
+                        mor_session_manager = request.new__this(
+                                                    self._do_service_content.SessionManager)
+                        mor_session_manager.set_attribute_type(MORTypes.SessionManager)
+                        request.set_element__this(mor_session_manager)
+                        request.set_element_base64Token(token)
+                        self.__session = self._proxy.LoginBySSPI(request)._returnval
+                        self.__logged = True
+                    except (VI.ZSI.FaultException), e:
+                        if e.fault.string == "fault.SSPIChallenge.summary":
+                            serverToken = e.fault.detail[0].Base64Token
+                            token = get_token(serverToken)
+                        else:
+                            raise e
 
         except (VI.ZSI.FaultException), e:
             raise VIApiException(e)
