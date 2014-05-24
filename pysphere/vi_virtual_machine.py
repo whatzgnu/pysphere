@@ -894,6 +894,56 @@ class VIVirtualMachine(VIManagedEntity):
         except (VI.ZSI.FaultException), e:
             raise VIApiException(e)
 
+    def rename_current_snapshot(self, new_name=None, new_description=None):
+        """Renames the current snapshot.
+        If @new_name is None, snapshot name remains unchanged.
+        If @new_description is None snapshot description remains unchanged."""
+        self.refresh_snapshot_list()
+        if not self.__current_snapshot:
+            raise VIException("There is no current snapshot",
+                              FaultTypes.OBJECT_NOT_FOUND)
+
+        target_snap = None
+        for snap in self._snapshot_list:
+            if snap._mor == self.__current_snapshot:
+                target_snap = snap
+                break
+
+        return self.__rename_snapshot(target_snap, new_name, new_description)
+
+    def rename_named_snapshot(self, name, new_name=None, new_description=None):
+        """Renames the first snapshot found in this VM named after @name.
+        If @new_name is None, snapshot name remains unchanged.
+        If @new_description is None snapshot description remains unchanged."""
+        self.refresh_snapshot_list()
+        target_snap = None
+        for snap in self._snapshot_list:
+            if snap._name == name:
+                target_snap = snap
+                break
+        if target_snap is None:
+            raise VIException("Could not find snapshot '%s'" % name,
+                              FaultTypes.OBJECT_NOT_FOUND)
+
+        return self.__rename_snapshot(target_snap, new_name, new_description)
+
+    def rename_snapshot_by_path(self, path, index=0, new_name=None, new_description=None):
+        """Renames the VM snapshot of the given path and index (to disambiguate
+        among snapshots with the same path, default 0).
+        If @new_name is None, snapshot name remains unchanged.
+        If @new_description is None snapshot description remains unchanged."""
+
+        target_snap = None
+        for snap in self._snapshot_list:
+            if snap.get_path() == path and snap._index == index:
+                target_snap = snap
+                break
+        if not target_snap:
+            raise VIException("Couldn't find snapshot with path '%s' (index %d)"
+                              % (path, index), FaultTypes.OBJECT_NOT_FOUND)
+
+        self.__rename_snapshot(target_snap, new_name, new_description)
+
     def delete_current_snapshot(self, remove_children=False, sync_run=True):
         """Removes the current snapshot. If @remove_children is True, removes
         all the snapshots in the subtree as well. If @sync_run is True (default)
@@ -1673,6 +1723,35 @@ class VIVirtualMachine(VIManagedEntity):
                                                                      ._returnval
             self._mor_vm_task_collector = ret
 
+        except (VI.ZSI.FaultException), e:
+            raise VIApiException(e)
+
+    def __rename_snapshot(self, snap, new_name=None, new_description=None):
+        """Renames the given snapshot.
+        If @new_name is None, snapshot name remains unchanged.
+        If @new_description is None snapshot description remains unchanged."""
+
+        if new_name == '':
+            raise VIException("Snapshot name must not be empty string.",
+                              FaultTypes.PARAMETER_ERROR)
+
+        if new_name is None and new_description is None:
+            raise VIException("Didn't provide name nor description. Nothing to do.",
+                              FaultTypes.PARAMETER_ERROR)
+        elif new_name is None:
+            new_name = snap._name
+        elif new_description is None:
+            new_description = snap._description
+
+        try:
+            request = VI.RenameSnapshotRequestMsg()
+            mor_snap = request.new__this(snap._mor)
+            mor_snap.set_attribute_type(snap._mor.get_attribute_type())
+            request.set_element__this(mor_snap)
+            request.set_element_name(new_name)
+            request.set_element_description(new_description)
+            self._server._proxy.RenameSnapshot(request)
+            self.refresh_snapshot_list()
         except (VI.ZSI.FaultException), e:
             raise VIApiException(e)
 
