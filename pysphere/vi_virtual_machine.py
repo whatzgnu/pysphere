@@ -1659,6 +1659,16 @@ class VIVirtualMachine(VIManagedEntity):
         except (VI.ZSI.FaultException), e:
             raise VIApiException(e)
 
+    def unregister(self):
+        try:
+            request = VI.UnregisterVMRequestMsg()
+            _this = request.new__this(self._mor)
+            _this.set_attribute_type(self._mor.get_attribute_type())
+            request.set_element__this(_this)
+            self._server._proxy.UnregisterVM(request)
+        except (VI.ZSI.FaultException), e:
+            raise VIApiException(e)
+
     #---------------------#
     #-- PRIVATE METHODS --#
     #---------------------#
