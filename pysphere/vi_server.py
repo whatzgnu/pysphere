@@ -37,8 +37,10 @@ from pysphere.resources import VimService_services as VI
 
 from pysphere import VIException, VIApiException, FaultTypes
 from pysphere.vi_virtual_machine import VIVirtualMachine
+from pysphere.vi_file_manager import VIFileManager
 from pysphere.vi_performance_manager import PerformanceManager
 from pysphere.vi_task_history_collector import VITaskHistoryCollector
+from pysphere.vi_property import VIProperty
 from pysphere.vi_mor import VIMor, MORTypes
 
 class VIServer:
@@ -213,6 +215,10 @@ class VIServer:
                 self._proxy.Logout(request)
             except (VI.ZSI.FaultException), e:
                 raise VIApiException(e)
+
+    def get_file_manager(self):
+        """Returns a File Manager entity"""
+        return VIFileManager(self, self._do_service_content.FileManager)
 
     def get_performance_manager(self):
         """Returns a Performance Manager entity"""
