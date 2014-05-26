@@ -42,6 +42,7 @@ from pysphere.vi_performance_manager import PerformanceManager
 from pysphere.vi_task_history_collector import VITaskHistoryCollector
 from pysphere.vi_property import VIProperty
 from pysphere.vi_mor import VIMor, MORTypes
+from pysphere.vi_task import VITask
 
 class VIServer:
 
@@ -536,6 +537,67 @@ class VIServer:
             _this.set_attribute_type(MORTypes.SessionManager)
             request.set_element__this(_this)
             return self._proxy.AcquireCloneTicket(request)._returnval
+        except (VI.ZSI.FaultException), e:
+            raise VIApiException(e)
+
+    def register_vm(self, path, name=None, sync_run=True, folder=None,
+                    template=False, resourcepool=None, host=None):
+        """Adds an existing virtual machine to the folder.
+        @path: a datastore path to the virtual machine.
+            Example "[datastore] path/to/machine.vmx".
+        @name: the name to be assigned to the virtual machine.
+            If this parameter is not set, the displayName configuration
+            parameter of the virtual machine is used.
+        @sync_run: if True (default) waits for the task to finish, and returns
+            a VIVirtualMachine instance with the new VM (raises an exception if
+            the task didn't succeed). If @sync_run is set to False the task is
+            started and a VITask instance is returned
+        @folder_name: folder in which to register the virtual machine.
+        @template: Flag to specify whether or not the virtual machine
+            should be marked as a template.
+        @resourcepool: MOR of the resource pool to which the virtual machine should
+            be attached. If imported as a template, this parameter is not set.
+        @host: The target host on which the virtual machine will run. This
+            parameter must specify a host that is a member of the ComputeResource
+            indirectly specified by the pool. For a stand-alone host or a cluster
+            with DRS, the parameter can be omitted, and the system selects a default.
+        """
+        if not folder:
+            folders = self._get_managed_objects(MORTypes.Folder)
+            folder = [_mor for _mor, _name in folders.iteritems()
+                          if _name == 'vm'][0]
+        try:
+            request = VI.RegisterVM_TaskRequestMsg()
+            _this = request.new__this(folder)
+            _this.set_attribute_type(folder.get_attribute_type())
+            request.set_element__this(_this)
+            request.set_element_path(path)
+            if name:
+                request.set_element_name(name)
+            request.set_element_asTemplate(template)
+            if resourcepool:
+                pool = request.new_pool(resourcepool)
+                pool.set_attribute_type(resourcepool.get_attribute_type())
+                request.set_element_pool(pool)
+            if host:
+                if not VIMor.is_mor(host):
+                    host = VIMor(host, MORTypes.HostSystem)
+                    hs = request.new_host(host)
+                    hs.set_attribute_type(host.get_attribute_type())
+                    request.set_element_host(hs)
+
+            task = self._proxy.RegisterVM_Task(request)._returnval
+            vi_task = VITask(task, self)
+            if sync_run:
+                status = vi_task.wait_for_state([vi_task.STATE_SUCCESS,
+                                                 vi_task.STATE_ERROR])
+                if status == vi_task.STATE_ERROR:
+                    raise VIException(vi_task.get_error_message(),
+                                      FaultTypes.TASK_ERROR)
+                return
+
+            return vi_task
+
         except (VI.ZSI.FaultException), e:
             raise VIApiException(e)
 
