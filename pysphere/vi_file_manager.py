@@ -29,6 +29,7 @@
 
 import urllib, urllib2
 import sys
+import re
 
 from pysphere.resources import VimService_services as VI
 from pysphere import VIProperty, VIMor, MORTypes
@@ -45,24 +46,22 @@ class VIFileManager:
         self._server = server
         self._mor = mor
         self._properties = VIProperty(server, mor)
-        self.relogin()
+        self._re_path = re.compile(r'\[(.*?)\] (.*)')
 
-    def relogin(self):
-        self._handler = self._build_auth_handler()
-
-    def list_files(self, datastore, path, case_insensitive=True,
+    def list_files(self, path, case_insensitive=True,
                    folders_first=True, match_patterns=[]):
-        """Return a list of files inside folder @path on @datastore
+        """Return a list of files in folder @path
         """
 
-        ds = [k for k,v in self._server.get_datastores().items() if v == datastore][0]
+        ds_name, file_name = re.match(self._re_path, path).groups()
+        ds = [k for k,v in self._server.get_datastores().items() if v == ds_name][0]
         browser_mor = VIProperty(self._server, ds).browser._obj
 
         request = VI.SearchDatastore_TaskRequestMsg()
         _this = request.new__this(browser_mor)
         _this.set_attribute_type(browser_mor.get_attribute_type())
         request.set_element__this(_this)
-        request.set_element_datastorePath("[%s] %s" % (datastore, path))
+        request.set_element_datastorePath(path)
 
         search_spec = request.new_searchSpec()
 
@@ -88,11 +87,11 @@ class VIFileManager:
         search_spec.set_element_matchPattern(match_patterns)
         request.set_element_searchSpec(search_spec)
         response = self._server._proxy.SearchDatastore_Task(request)._returnval
-        task = VITask(response, self._server)
-        if task.wait_for_state([task.STATE_ERROR, task.STATE_SUCCESS]) == task.STATE_ERROR:
-            raise Exception(task.get_error_message())
-
-        info = task.get_result()
+        vi_task = VITask(response, self._server)
+        if vi_task.wait_for_state([vi_task.STATE_ERROR, vi_task.STATE_SUCCESS]) == vi_task.STATE_ERROR:
+            raise VIException(vi_task.get_error_message(),
+                              FaultTypes.TASK_ERROR)
+        info = vi_task.get_result()
         # return info
 
         if not hasattr(info, "file"):
@@ -106,54 +105,93 @@ class VIFileManager:
                  'owner':fi.owner
                 } for fi in info.file]
 
-    def make_directory(self, datastore, path, create_parent=False):
-        """Creates new directory on @datastore with given @path
+    def make_directory(self, path, create_parent=False):
+        """Creates new directory with given @path on datastore
         """
         try:
             request = VI.MakeDirectoryRequestMsg()
-            _this = request.new__this(self._fileManager)
-            _this.set_attribute_type(self._fileManager.get_attribute_type())
+            _this = request.new__this(self._mor)
+            _this.set_attribute_type(self._mor.get_attribute_type())
             request.set_element__this(_this)
-            request.set_element_name("[%s] %s" % (datastore, path))
+            request.set_element_name(path)
             request.set_element_createParentDirectories(create_parent)
             self._server._proxy.MakeDirectory(request)
         except (VI.ZSI.FaultException), e:
             raise VIApiException(e)
 
-    def upload(self, datastore, local_file_path, remote_file_path):
-        """Uploads @local_file_path to @remote_file_path on @datastore
-        replacing existing file. Returns True if @remote_file_path was replaced
-        and False otherwise.
+    def delete_file(self, path, datacenter=None, sync_run=True):
+        """Deletes the specified file or folder from the datastore.
+        If a file of a virtual machine is deleted, it may corrupt
+        that virtual machine. Folder deletes are always recursive.
         """
+        try:
+            request = VI.DeleteDatastoreFile_TaskRequestMsg()
+            _this = request.new__this(self._mor)
+            _this.set_attribute_type(self._mor.get_attribute_type())
+            request.set_element__this(_this)
+            request.set_element_name(path)
+            if datacenter:
+                request.set_element_datacenter(datacenter)
+
+            task = self._server._proxy.DeleteDatastoreFile_Task(request)._returnval
+            vi_task = VITask(task, self._server)
+            if sync_run:
+                status = vi_task.wait_for_state([vi_task.STATE_SUCCESS,
+                                                 vi_task.STATE_ERROR])
+                if status == vi_task.STATE_ERROR:
+                    raise VIException(vi_task.get_error_message(),
+                                      FaultTypes.TASK_ERROR)
+                return
+
+            return vi_task
+
+        except (VI.ZSI.FaultException), e:
+            raise VIApiException(e)
+
+    def upload(self, local_file_path, remote_file_path):
+        """Uploads @local_file_path to @remote_file_path on datastore
+        replacing existing file. Returns True if @remote_file_path was replaced,
+        otherwise False.
+        """
+        ds_name, file_name = re.match(self._re_path, remote_file_path).groups()
         fd = open(local_file_path, "r")
         data = fd.read()
         fd.close()
-        resource = "/folder/%s" % remote_file_path.lstrip("/")
-        url = self._get_url(datastore, resource)
+        resource = "/folder/%s" % file_name.lstrip("/")
+        url = self._get_url(ds_name, resource)
         resp = self._do_request(url, data)
         return resp.code == 200
 
-    def download(self, datastore, remote_file_path, local_file_path):
-        """Downloads @remote_file_path from @datastore to @local_file_path
+    def download(self, remote_file_path, local_file_path):
+        """Downloads @remote_file_path from datastore to @local_file_path
         replacing existing file.
         """
-        resource = "/folder/%s" % remote_file_path.lstrip("/")
-        url = self._get_url(datastore, resource)
-
-        if sys.version_info >= (2, 6):
-            resp = self._do_request(url)
-            CHUNK = 16 * 1024
-            fd = open(local_file_path, "wb")
+        ds_name, file_name = re.match(self._re_path, remote_file_path).groups()
+        resource = "/folder/%s" % file_name.lstrip("/")
+        url = self._get_url(ds_name, resource)
+        resp = self._do_request(url)
+        CHUNK = 16 * 1024
+        with open(local_file_path, "wb") as fd:
             while True:
                 chunk = resp.read(CHUNK)
                 if not chunk: break
                 fd.write(chunk)
-            fd.close()
-        else:
-            urllib.urlretrieve(url, local_file_path)
 
     def _do_request(self, url, data=None):
-        opener = urllib2.build_opener(self._handler)
+        opener = urllib2.build_opener()
+        for cname, morsel in self._server._proxy.binding.cookies.iteritems():
+            attrs = []
+            value = morsel.get('version', '')
+            if value != '' and value != '0':
+                attrs.append('$Version=%s' % value)
+            attrs.append('%s=%s' % (cname, morsel.coded_value))
+            value = morsel.get('path')
+            if value:
+                attrs.append('$Path=%s' % value)
+            value = morsel.get('domain')
+            if value:
+                attrs.append('$Domain=%s' % value)
+            opener.addheaders.append(('Cookie', "; ".join(attrs)))
         request = urllib2.Request(url, data=data)
         if data:
             request.get_method = lambda: 'PUT'
@@ -162,6 +200,7 @@ class VIFileManager:
     def _get_url(self, datastore, resource, datacenter=None):
         if not resource.startswith("/"):
             resource = "/" + resource
+        resource = urllib.quote(resource)
 
         params = {"dsName":datastore}
         if datacenter:
@@ -173,11 +212,3 @@ class VIFileManager:
     def _get_service_url(self):
         service_url = self._server._proxy.binding.url
         return service_url[:service_url.rindex("/sdk")]
-
-    def _build_auth_handler(self):
-        service_url = self._get_service_url()
-        user = self._server._VIServer__user
-        password = self._server._VIServer__password
-        auth_manager = urllib2.HTTPPasswordMgrWithDefaultRealm()
-        auth_manager.add_password(None, service_url, user, password)
-        return urllib2.HTTPBasicAuthHandler(auth_manager)
