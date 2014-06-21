@@ -119,6 +119,82 @@ class VIFileManager:
         except (VI.ZSI.FaultException), e:
             raise VIApiException(e)
 
+    def move_file(self, source_path, dest_path, source_datacenter=None,
+                  dest_datacenter=None, force=False, sync_run=True):
+        """Moves the source file or folder to the destination. If the destination
+        file does not exist, it is created. If the destination file exists, the
+        @force parameter determines whether to overwrite it with the source or not.
+        Folders can be copied recursively. In this case, the destination, if it
+        exists, must be a folder, else one will be created. Existing files on
+        the destination that conflict with source files can be overwritten
+        using the @force parameter.
+        """
+        try:
+            request = VI.MoveDatastoreFile_TaskRequestMsg()
+            _this = request.new__this(self._mor)
+            _this.set_attribute_type(self._mor.get_attribute_type())
+            request.set_element__this(_this)
+            request.set_element_sourceName(source_path)
+            request.set_element_destinationName(dest_path)
+            if source_datacenter:
+                request.set_element_sourceDatacenter(source_datacenter)
+            if dest_datacenter:
+                request.set_element_destinationDatacenter(dest_datacenter)
+            request.set_element_force(force)
+
+            task = self._server._proxy.MoveDatastoreFile_Task(request)._returnval
+            vi_task = VITask(task, self._server)
+            if sync_run:
+                status = vi_task.wait_for_state([vi_task.STATE_SUCCESS,
+                                                 vi_task.STATE_ERROR])
+                if status == vi_task.STATE_ERROR:
+                    raise VIException(vi_task.get_error_message(),
+                                      FaultTypes.TASK_ERROR)
+                return
+
+            return vi_task
+
+        except (VI.ZSI.FaultException), e:
+            raise VIApiException(e)
+
+    def copy_file(self, source_path, dest_path, source_datacenter=None,
+                  dest_datacenter=None, force=False, sync_run=True):
+        """Copies the source file or folder to the destination. If the destination
+        file does not exist, it is created. If the destination file exists, the
+        @force parameter determines whether to overwrite it with the source or not.
+        Folders can be copied recursively. In this case, the destination, if it
+        exists, must be a folder, else one will be created. Existing files on
+        the destination that conflict with source files can be overwritten
+        using the @force parameter.
+        """
+        try:
+            request = VI.CopyDatastoreFile_TaskRequestMsg()
+            _this = request.new__this(self._mor)
+            _this.set_attribute_type(self._mor.get_attribute_type())
+            request.set_element__this(_this)
+            request.set_element_sourceName(source_path)
+            request.set_element_destinationName(dest_path)
+            if source_datacenter:
+                request.set_element_sourceDatacenter(source_datacenter)
+            if dest_datacenter:
+                request.set_element_destinationDatacenter(dest_datacenter)
+            request.set_element_force(force)
+
+            task = self._server._proxy.CopyDatastoreFile_Task(request)._returnval
+            vi_task = VITask(task, self._server)
+            if sync_run:
+                status = vi_task.wait_for_state([vi_task.STATE_SUCCESS,
+                                                 vi_task.STATE_ERROR])
+                if status == vi_task.STATE_ERROR:
+                    raise VIException(vi_task.get_error_message(),
+                                      FaultTypes.TASK_ERROR)
+                return
+
+            return vi_task
+
+        except (VI.ZSI.FaultException), e:
+            raise VIApiException(e)
+
     def delete_file(self, path, datacenter=None, sync_run=True):
         """Deletes the specified file or folder from the datastore.
         If a file of a virtual machine is deleted, it may corrupt
