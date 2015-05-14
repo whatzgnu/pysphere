@@ -35,7 +35,7 @@ from pysphere.resources import VimService_services as VI
 from pysphere import VIProperty, VIMor, MORTypes
 from pysphere.vi_task import VITask
 from pysphere.resources.vi_exception import VIException, VIApiException, \
-                                            FaultTypes
+                                            VITaskException, FaultTypes
 from pysphere.vi_snapshot import VISnapshot
 from pysphere.vi_managed_entity import VIManagedEntity
 
@@ -89,8 +89,7 @@ class VIFileManager:
         response = self._server._proxy.SearchDatastore_Task(request)._returnval
         vi_task = VITask(response, self._server)
         if vi_task.wait_for_state([vi_task.STATE_ERROR, vi_task.STATE_SUCCESS]) == vi_task.STATE_ERROR:
-            raise VIException(vi_task.get_error_message(),
-                              FaultTypes.TASK_ERROR)
+            raise VITaskException(vi_task.info.error)
         info = vi_task.get_result()
         # return info
 
@@ -148,8 +147,7 @@ class VIFileManager:
                 status = vi_task.wait_for_state([vi_task.STATE_SUCCESS,
                                                  vi_task.STATE_ERROR])
                 if status == vi_task.STATE_ERROR:
-                    raise VIException(vi_task.get_error_message(),
-                                      FaultTypes.TASK_ERROR)
+                    raise VITaskException(vi_task.info.error)
                 return
 
             return vi_task
@@ -186,8 +184,7 @@ class VIFileManager:
                 status = vi_task.wait_for_state([vi_task.STATE_SUCCESS,
                                                  vi_task.STATE_ERROR])
                 if status == vi_task.STATE_ERROR:
-                    raise VIException(vi_task.get_error_message(),
-                                      FaultTypes.TASK_ERROR)
+                    raise VITaskException(vi_task.info.error)
                 return
 
             return vi_task
@@ -215,8 +212,7 @@ class VIFileManager:
                 status = vi_task.wait_for_state([vi_task.STATE_SUCCESS,
                                                  vi_task.STATE_ERROR])
                 if status == vi_task.STATE_ERROR:
-                    raise VIException(vi_task.get_error_message(),
-                                      FaultTypes.TASK_ERROR)
+                    raise VITaskException(vi_task.info.error)
                 return
 
             return vi_task

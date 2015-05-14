@@ -35,7 +35,7 @@ from socket import gethostbyaddr
 
 from pysphere.resources import VimService_services as VI
 
-from pysphere import VIException, VIApiException, FaultTypes
+from pysphere import VIException, VIApiException, VITaskException, FaultTypes
 from pysphere.vi_virtual_machine import VIVirtualMachine
 from pysphere.vi_file_manager import VIFileManager
 from pysphere.vi_performance_manager import PerformanceManager
@@ -592,8 +592,7 @@ class VIServer:
                 status = vi_task.wait_for_state([vi_task.STATE_SUCCESS,
                                                  vi_task.STATE_ERROR])
                 if status == vi_task.STATE_ERROR:
-                    raise VIException(vi_task.get_error_message(),
-                                      FaultTypes.TASK_ERROR)
+                    raise VITaskException(vi_task.info.error)
                 return
 
             return vi_task
@@ -706,7 +705,6 @@ class VIServer:
         except (VI.ZSI.FaultException), e:
             raise VIApiException(e)
 
-
     def _retrieve_properties_traversal(self, property_names=[],
                                       from_node=None, obj_type='ManagedEntity'):
         """Uses VI API's property collector to retrieve the properties defined
@@ -736,138 +734,12 @@ class VIServer:
             do_PropertyFilterSpec_specSet = request.new_specSet()
 
             props_set = []
-            do_PropertySpec_propSet =do_PropertyFilterSpec_specSet.new_propSet()
+            do_PropertySpec_propSet = do_PropertyFilterSpec_specSet.new_propSet()
             do_PropertySpec_propSet.set_element_type(obj_type)
             do_PropertySpec_propSet.set_element_pathSet(property_names)
             props_set.append(do_PropertySpec_propSet)
 
-            objects_set = []
-            do_ObjectSpec_objSet = do_PropertyFilterSpec_specSet.new_objectSet()
-            mor_obj = do_ObjectSpec_objSet.new_obj(from_node)
-            mor_obj.set_attribute_type(from_node.get_attribute_type())
-            do_ObjectSpec_objSet.set_element_obj(mor_obj)
-            do_ObjectSpec_objSet.set_element_skip(False)
-
-            #Recurse through all ResourcePools
-            rp_to_rp = VI.ns0.TraversalSpec_Def('rpToRp').pyclass()
-            rp_to_rp.set_element_name('rpToRp')
-            rp_to_rp.set_element_type(MORTypes.ResourcePool)
-            rp_to_rp.set_element_path('resourcePool')
-            rp_to_rp.set_element_skip(False)
-            rp_to_vm= VI.ns0.TraversalSpec_Def('rpToVm').pyclass()
-            rp_to_vm.set_element_name('rpToVm')
-            rp_to_vm.set_element_type(MORTypes.ResourcePool)
-            rp_to_vm.set_element_path('vm')
-            rp_to_vm.set_element_skip(False)
-
-            spec_array_resource_pool = [do_ObjectSpec_objSet.new_selectSet(),
-                                        do_ObjectSpec_objSet.new_selectSet()]
-            spec_array_resource_pool[0].set_element_name('rpToRp')
-            spec_array_resource_pool[1].set_element_name('rpToVm')
-
-            rp_to_rp.set_element_selectSet(spec_array_resource_pool)
-
-            #Traversal through resource pool branch
-            cr_to_rp = VI.ns0.TraversalSpec_Def('crToRp').pyclass()
-            cr_to_rp.set_element_name('crToRp')
-            cr_to_rp.set_element_type(MORTypes.ComputeResource)
-            cr_to_rp.set_element_path('resourcePool')
-            cr_to_rp.set_element_skip(False)
-            spec_array_computer_resource =[do_ObjectSpec_objSet.new_selectSet(),
-                                           do_ObjectSpec_objSet.new_selectSet()]
-            spec_array_computer_resource[0].set_element_name('rpToRp');
-            spec_array_computer_resource[1].set_element_name('rpToVm');
-            cr_to_rp.set_element_selectSet(spec_array_computer_resource)
-
-            #Traversal through host branch
-            cr_to_h = VI.ns0.TraversalSpec_Def('crToH').pyclass()
-            cr_to_h.set_element_name('crToH')
-            cr_to_h.set_element_type(MORTypes.ComputeResource)
-            cr_to_h.set_element_path('host')
-            cr_to_h.set_element_skip(False)
-
-            #Traversal through hostFolder branch
-            dc_to_hf = VI.ns0.TraversalSpec_Def('dcToHf').pyclass()
-            dc_to_hf.set_element_name('dcToHf')
-            dc_to_hf.set_element_type(MORTypes.Datacenter)
-            dc_to_hf.set_element_path('hostFolder')
-            dc_to_hf.set_element_skip(False)
-            spec_array_datacenter_host = [do_ObjectSpec_objSet.new_selectSet()]
-            spec_array_datacenter_host[0].set_element_name('visitFolders')
-            dc_to_hf.set_element_selectSet(spec_array_datacenter_host)
-
-            #Traversal through vmFolder branch
-            dc_to_vmf = VI.ns0.TraversalSpec_Def('dcToVmf').pyclass()
-            dc_to_vmf.set_element_name('dcToVmf')
-            dc_to_vmf.set_element_type(MORTypes.Datacenter)
-            dc_to_vmf.set_element_path('vmFolder')
-            dc_to_vmf.set_element_skip(False)
-            spec_array_datacenter_vm = [do_ObjectSpec_objSet.new_selectSet()]
-            spec_array_datacenter_vm[0].set_element_name('visitFolders')
-            dc_to_vmf.set_element_selectSet(spec_array_datacenter_vm)
-
-            #Traversal through datastore branch
-            dc_to_ds = VI.ns0.TraversalSpec_Def('dcToDs').pyclass()
-            dc_to_ds.set_element_name('dcToDs')
-            dc_to_ds.set_element_type(MORTypes.Datacenter)
-            dc_to_ds.set_element_path('datastore')
-            dc_to_ds.set_element_skip(False)
-            spec_array_datacenter_ds = [do_ObjectSpec_objSet.new_selectSet()]
-            spec_array_datacenter_ds[0].set_element_name('visitFolders')
-            dc_to_ds.set_element_selectSet(spec_array_datacenter_ds)
-
-            #Recurse through all hosts
-            h_to_vm = VI.ns0.TraversalSpec_Def('hToVm').pyclass()
-            h_to_vm.set_element_name('hToVm')
-            h_to_vm.set_element_type(MORTypes.HostSystem)
-            h_to_vm.set_element_path('vm')
-            h_to_vm.set_element_skip(False)
-            spec_array_host_vm = [do_ObjectSpec_objSet.new_selectSet()]
-            spec_array_host_vm[0].set_element_name('visitFolders')
-            h_to_vm.set_element_selectSet(spec_array_host_vm)
-
-            #Recurse through all datastores
-            ds_to_vm = VI.ns0.TraversalSpec_Def('dsToVm').pyclass()
-            ds_to_vm.set_element_name('dsToVm')
-            ds_to_vm.set_element_type(MORTypes.Datastore)
-            ds_to_vm.set_element_path('vm')
-            ds_to_vm.set_element_skip(False)
-            spec_array_datastore_vm = [do_ObjectSpec_objSet.new_selectSet()]
-            spec_array_datastore_vm[0].set_element_name('visitFolders')
-            ds_to_vm.set_element_selectSet(spec_array_datastore_vm)
-
-            #Recurse through the folders
-            visit_folders = VI.ns0.TraversalSpec_Def('visitFolders').pyclass()
-            visit_folders.set_element_name('visitFolders')
-            visit_folders.set_element_type(MORTypes.Folder)
-            visit_folders.set_element_path('childEntity')
-            visit_folders.set_element_skip(False)
-            spec_array_visit_folders = [do_ObjectSpec_objSet.new_selectSet(),
-                                        do_ObjectSpec_objSet.new_selectSet(),
-                                        do_ObjectSpec_objSet.new_selectSet(),
-                                        do_ObjectSpec_objSet.new_selectSet(),
-                                        do_ObjectSpec_objSet.new_selectSet(),
-                                        do_ObjectSpec_objSet.new_selectSet(),
-                                        do_ObjectSpec_objSet.new_selectSet(),
-                                        do_ObjectSpec_objSet.new_selectSet(),
-                                        do_ObjectSpec_objSet.new_selectSet()]
-            spec_array_visit_folders[0].set_element_name('visitFolders')
-            spec_array_visit_folders[1].set_element_name('dcToHf')
-            spec_array_visit_folders[2].set_element_name('dcToVmf')
-            spec_array_visit_folders[3].set_element_name('crToH')
-            spec_array_visit_folders[4].set_element_name('crToRp')
-            spec_array_visit_folders[5].set_element_name('dcToDs')
-            spec_array_visit_folders[6].set_element_name('hToVm')
-            spec_array_visit_folders[7].set_element_name('dsToVm')
-            spec_array_visit_folders[8].set_element_name('rpToVm')
-            visit_folders.set_element_selectSet(spec_array_visit_folders)
-
-            #Add all of them here
-            spec_array = [visit_folders, dc_to_vmf, dc_to_ds, dc_to_hf, cr_to_h,
-                          cr_to_rp, rp_to_rp, h_to_vm, ds_to_vm, rp_to_vm]
-
-            do_ObjectSpec_objSet.set_element_selectSet(spec_array)
-            objects_set.append(do_ObjectSpec_objSet)
+            objects_set = self._get_traversal_objects_set(do_PropertyFilterSpec_specSet, from_node)
 
             do_PropertyFilterSpec_specSet.set_element_propSet(props_set)
             do_PropertyFilterSpec_specSet.set_element_objectSet(objects_set)
@@ -876,8 +748,7 @@ class VIServer:
             return request_call(request)
 
         except (VI.ZSI.FaultException), e:
-                raise VIApiException(e)
-
+            raise VIApiException(e)
 
     def _retrieve_property_request(self):
         """Returns a base request object an call request method pointer for
@@ -922,6 +793,125 @@ class VIServer:
             call_pointer = call_retrieve_properties
 
         return request, call_pointer
+
+    def _get_traversal_objects_set(self, specSet, from_node):
+        objects_set = []
+        do_ObjectSpec_objSet = specSet.new_objectSet()
+        mor_obj = do_ObjectSpec_objSet.new_obj(from_node)
+        mor_obj.set_attribute_type(from_node.get_attribute_type())
+        do_ObjectSpec_objSet.set_element_obj(mor_obj)
+        do_ObjectSpec_objSet.set_element_skip(False)
+
+        #Recurse through all ResourcePools
+        rp_to_rp = VI.ns0.TraversalSpec_Def('rpToRp').pyclass()
+        rp_to_rp.set_element_name('rpToRp')
+        rp_to_rp.set_element_type(MORTypes.ResourcePool)
+        rp_to_rp.set_element_path('resourcePool')
+        rp_to_rp.set_element_skip(False)
+        rp_to_vm = VI.ns0.TraversalSpec_Def('rpToVm').pyclass()
+        rp_to_vm.set_element_name('rpToVm')
+        rp_to_vm.set_element_type(MORTypes.ResourcePool)
+        rp_to_vm.set_element_path('vm')
+        rp_to_vm.set_element_skip(False)
+
+        spec_array_resource_pool = [do_ObjectSpec_objSet.new_selectSet(),
+                                    do_ObjectSpec_objSet.new_selectSet()]
+        spec_array_resource_pool[0].set_element_name('rpToRp')
+        spec_array_resource_pool[1].set_element_name('rpToVm')
+
+        rp_to_rp.set_element_selectSet(spec_array_resource_pool)
+
+        #Traversal through resource pool branch
+        cr_to_rp = VI.ns0.TraversalSpec_Def('crToRp').pyclass()
+        cr_to_rp.set_element_name('crToRp')
+        cr_to_rp.set_element_type(MORTypes.ComputeResource)
+        cr_to_rp.set_element_path('resourcePool')
+        cr_to_rp.set_element_skip(False)
+        spec_array_computer_resource = [do_ObjectSpec_objSet.new_selectSet(),
+                                        do_ObjectSpec_objSet.new_selectSet()]
+        spec_array_computer_resource[0].set_element_name('rpToRp');
+        spec_array_computer_resource[1].set_element_name('rpToVm');
+        cr_to_rp.set_element_selectSet(spec_array_computer_resource)
+
+        #Traversal through host branch
+        cr_to_h = VI.ns0.TraversalSpec_Def('crToH').pyclass()
+        cr_to_h.set_element_name('crToH')
+        cr_to_h.set_element_type(MORTypes.ComputeResource)
+        cr_to_h.set_element_path('host')
+        cr_to_h.set_element_skip(False)
+
+        #Traversal through hostFolder branch
+        dc_to_hf = VI.ns0.TraversalSpec_Def('dcToHf').pyclass()
+        dc_to_hf.set_element_name('dcToHf')
+        dc_to_hf.set_element_type(MORTypes.Datacenter)
+        dc_to_hf.set_element_path('hostFolder')
+        dc_to_hf.set_element_skip(False)
+        spec_array_datacenter_host = [do_ObjectSpec_objSet.new_selectSet()]
+        spec_array_datacenter_host[0].set_element_name('visitFolders')
+        dc_to_hf.set_element_selectSet(spec_array_datacenter_host)
+
+        #Traversal through vmFolder branch
+        dc_to_vmf = VI.ns0.TraversalSpec_Def('dcToVmf').pyclass()
+        dc_to_vmf.set_element_name('dcToVmf')
+        dc_to_vmf.set_element_type(MORTypes.Datacenter)
+        dc_to_vmf.set_element_path('vmFolder')
+        dc_to_vmf.set_element_skip(False)
+        spec_array_datacenter_vm = [do_ObjectSpec_objSet.new_selectSet()]
+        spec_array_datacenter_vm[0].set_element_name('visitFolders')
+        dc_to_vmf.set_element_selectSet(spec_array_datacenter_vm)
+
+        #Traversal through datastore branch
+        dc_to_ds = VI.ns0.TraversalSpec_Def('dcToDs').pyclass()
+        dc_to_ds.set_element_name('dcToDs')
+        dc_to_ds.set_element_type(MORTypes.Datacenter)
+        dc_to_ds.set_element_path('datastore')
+        dc_to_ds.set_element_skip(False)
+        spec_array_datacenter_ds = [do_ObjectSpec_objSet.new_selectSet()]
+        spec_array_datacenter_ds[0].set_element_name('visitFolders')
+        dc_to_ds.set_element_selectSet(spec_array_datacenter_ds)
+
+        #Recurse through all hosts
+        h_to_vm = VI.ns0.TraversalSpec_Def('hToVm').pyclass()
+        h_to_vm.set_element_name('hToVm')
+        h_to_vm.set_element_type(MORTypes.HostSystem)
+        h_to_vm.set_element_path('vm')
+        h_to_vm.set_element_skip(False)
+        spec_array_host_vm = [do_ObjectSpec_objSet.new_selectSet()]
+        spec_array_host_vm[0].set_element_name('visitFolders')
+        h_to_vm.set_element_selectSet(spec_array_host_vm)
+
+        #Recurse through all datastores
+        ds_to_vm = VI.ns0.TraversalSpec_Def('dsToVm').pyclass()
+        ds_to_vm.set_element_name('dsToVm')
+        ds_to_vm.set_element_type(MORTypes.Datastore)
+        ds_to_vm.set_element_path('vm')
+        ds_to_vm.set_element_skip(False)
+        spec_array_datastore_vm = [do_ObjectSpec_objSet.new_selectSet()]
+        spec_array_datastore_vm[0].set_element_name('visitFolders')
+        ds_to_vm.set_element_selectSet(spec_array_datastore_vm)
+
+        #Recurse through the folders
+        visit_folders = VI.ns0.TraversalSpec_Def('visitFolders').pyclass()
+        visit_folders.set_element_name('visitFolders')
+        visit_folders.set_element_type(MORTypes.Folder)
+        visit_folders.set_element_path('childEntity')
+        visit_folders.set_element_skip(False)
+        spec_array_visit_folders = []
+        for i in ('visitFolders', 'dcToHf', 'dcToVmf', 'crToH', 'crToRp',
+                  'dcToDs', 'hToVm', 'dsToVm', 'rpToVm'):
+            select_set = do_ObjectSpec_objSet.new_selectSet()
+            select_set.set_element_name(i)
+            spec_array_visit_folders.append(select_set)
+
+        visit_folders.set_element_selectSet(spec_array_visit_folders)
+
+        #Add all of them here
+        spec_array = [visit_folders, dc_to_vmf, dc_to_ds, dc_to_hf, cr_to_h,
+                      cr_to_rp, rp_to_rp, h_to_vm, ds_to_vm, rp_to_vm]
+
+        do_ObjectSpec_objSet.set_element_selectSet(spec_array)
+        objects_set.append(do_ObjectSpec_objSet)
+        return objects_set
 
     def _set_header(self, name, value):
         """Sets a HTTP header to be sent with the SOAP requests.
