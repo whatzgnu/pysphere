@@ -750,6 +750,42 @@ class VIServer:
         except (VI.ZSI.FaultException), e:
             raise VIApiException(e)
 
+    def _create_filter(self, property_names=[],
+                       from_node=None, obj_type='ManagedEntity', partial_updates=True):
+        """Creates filter with given parameters and returns its MOR"""
+        try:
+            if not from_node:
+                from_node = self._do_service_content.RootFolder
+
+            elif isinstance(from_node, tuple) and len(from_node) == 2:
+                from_node = VIMor(from_node[0], from_node[1])
+            elif not VIMor.is_mor(from_node):
+                raise VIException("from_node must be a MOR object or a "
+                                  "(<str> mor_id, <str> mor_type) tuple",
+                                  FaultTypes.PARAMETER_ERROR)
+
+            request = VI.CreateFilterRequestMsg()
+            _this = request.new__this(self._do_service_content.PropertyCollector)
+            _this.set_attribute_type(MORTypes.PropertyCollector)
+            request.set_element__this(_this)
+            request.set_element_partialUpdates(partial_updates)
+
+            spec = request.new_spec()
+            propSet = spec.new_propSet()
+            propSet.set_element_type(obj_type)
+            propSet.set_element_pathSet(property_names)
+            spec.set_element_propSet([propSet])
+
+            objects_set = self._get_traversal_objects_set(spec, from_node)
+            spec.set_element_objectSet(objects_set)
+            request.set_element_spec(spec)
+
+            mor = self._proxy.CreateFilter(request)._returnval
+            return mor
+
+        except (VI.ZSI.FaultException), e:
+            raise VIApiException(e)
+
     def _retrieve_property_request(self):
         """Returns a base request object an call request method pointer for
         either RetrieveProperties or RetrievePropertiesEx depending on
@@ -793,6 +829,37 @@ class VIServer:
             call_pointer = call_retrieve_properties
 
         return request, call_pointer
+
+    def _wait_for_updates(self, version='', max_object_updates=None, max_wait_seconds=None):
+
+        try:
+            if self.__api_version >= "4.1":
+                request = VI.WaitForUpdatesExRequestMsg()
+                options = request.new_options()
+                if max_object_updates is not None:
+                    options.set_element_maxObjectUpdates(max_object_updates)
+                if max_wait_seconds is not None:
+                    options.set_element_maxWaitSeconds(max_wait_seconds)
+                request.set_element_options(options)
+                method = self._proxy.WaitForUpdatesEx
+            else:
+                if max_wait_seconds is None:
+                    print 'WaitForUpdates'
+                    request = VI.WaitForUpdatesRequestMsg()
+                    method = self._proxy.WaitForUpdates
+                else:
+                    print 'CheckForUpdates'
+                    request = VI.CheckForUpdatesRequestMsg()
+                    method = self._proxy.CheckForUpdates
+            _this = request.new__this(self._do_service_content.PropertyCollector)
+            _this.set_attribute_type(MORTypes.PropertyCollector)
+            request.set_element__this(_this)
+            request.set_element_version(version)
+            retval = method(request)._returnval
+            return retval
+
+        except (VI.ZSI.FaultException), e:
+            raise VIApiException(e)
 
     def _get_traversal_objects_set(self, specSet, from_node):
         objects_set = []
