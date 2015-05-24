@@ -1403,7 +1403,7 @@ class VIVirtualMachine(VIManagedEntity):
     #-- GUEST PROCESS METHODS --#
     #---------------------------#
 
-    def list_processes(self):
+    def list_processes(self, pids=[]):
         """
         List the processes running in the guest operating system, plus those
         started by start_process that have recently completed.
@@ -1419,6 +1419,8 @@ class VIVirtualMachine(VIManagedEntity):
             owner [string]: The process owner
             pid [long]: The process ID
             start_time [datetime] The start time of the process
+          * pids [list of numbers]: Optional list of pids to show. If skipped or
+                                    empty, all processes will be shown.
         """
         if not self._proc_mgr:
             raise VIException("Process operations not supported on this server",
@@ -1435,6 +1437,7 @@ class VIVirtualMachine(VIManagedEntity):
             vm.set_attribute_type(self._mor.get_attribute_type())
             request.set_element_vm(vm)
             request.set_element_auth(self._auth_obj)
+            request.set_element_pids(pids)
             pinfo = self._server._proxy.ListProcessesInGuest(request)._returnval
             ret = []
             for proc in pinfo:
