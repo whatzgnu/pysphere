@@ -1014,7 +1014,7 @@ class VIServer:
 
     #---- DEPRECATED METHODS ----#
 
-    def _get_clusters(self, from_cache=True):
+    def _get_clusters(self, from_cache=False):
         """DEPRECATED: use get_clusters instead."""
         import warnings
         from exceptions import DeprecationWarning
@@ -1025,7 +1025,7 @@ class VIServer:
         ret = self.get_clusters()
         return dict([(v,k) for k,v in ret.iteritems()])
 
-    def _get_datacenters(self, from_cache=True):
+    def _get_datacenters(self, from_cache=False):
         """DEPRECATED: use get_datacenters instead."""
         import warnings
         from exceptions import DeprecationWarning
@@ -1036,7 +1036,7 @@ class VIServer:
         ret = self.get_datacenters()
         return dict([(v,k) for k,v in ret.iteritems()])
 
-    def _get_resource_pools(self, from_cache=True):
+    def _get_resource_pools(self, from_cache=False):
         """DEPRECATED: use get_resource_pools instead."""
         import warnings
         from exceptions import DeprecationWarning
