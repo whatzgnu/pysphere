@@ -1,3 +1,24 @@
+New in 0.2.0 **Non-maintainer changes**
+- Merged changes from various places on the net:
+  * (machalekj/master) Added VIEventHistoryCollector class
+  * (dav1x/master) Fixes issue #70
+  * (ayavilevich/readme-update) Update broken links of old site to new urls or remove them.
+  * (gentoo90/new-features) Changed cache to false by default
+  *  Add filtering by pids to vm.list_processes()
+  *  Add _create_filter and _wait_for_updates methods to VIServer
+  *  More informative exceptions, refactoring
+  *  Add copy_file and move_file methods to VIFileManager
+  *  VIFileManager changes
+  *  Add register_vm method to VIServer class
+  *  Add VIFileManager
+  *  Add unregister method to VIVirtualMachine class
+  *  Add snapshots renaming
+  *  Add Kerberos login
+  * (gentoo90/master, ayavilevich/master) Reverted original Readme and added .md version for github
+  *  added readme.md
+  *  update readme
+  *  Add vms_from_folder method to vi_server.VIServer class
+
 Roadmap for 0.1.9
 - Add vms_from_folder method in VIServer
 - Added VIEventHistoryCollector class to retrieve vCenter events
